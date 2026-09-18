@@ -157,18 +157,48 @@ export default function plugin(bb: BbPluginApi) {
           archiveAfter: s.archiveAfter ?? null,
           setupStatus: s.setupStatus ?? null,
         })),
-        operations: (ops ?? []).map((row) => ({
-          operationId: row.value.operationId,
-          name: row.value.name,
-          stage: row.value.stage,
-          sandboxId: row.value.sandboxId ?? null,
-          error: row.value.error ?? null,
-        })),
+        operations: (ops ?? []).flatMap((row: any) => {
+          let v: any;
+          try {
+            v = typeof row?.value === "string" ? JSON.parse(row.value) : row?.value;
+          } catch {
+            return [];
+          }
+          if (!v || typeof v !== "object" || !v.operationId) return [];
+          return [{
+            operationId: String(v.operationId),
+            name: String(v.name ?? "?"),
+            stage: String(v.stage ?? "?"),
+            sandboxId: v.sandboxId ?? null,
+            error: v.error ?? null,
+          }];
+        }),
         fetchedAt: new Date().toISOString(),
       };
     },
 
     async boxCreate(input) {
+      // Retry safety: if a non-failed operation for this name still references a
+      // live sandbox, reuse it instead of creating a duplicate box.
+      const prior = (await bb.storage.kv.list("op:")) as Array<{ key: string; value: any }>;
+      for (const row of prior) {
+        let v: any;
+        try {
+          v = typeof row?.value === "string" ? JSON.parse(row.value) : row?.value;
+        } catch {
+          continue;
+        }
+        if (!v || v.name !== input.name || !v.sandboxId) continue;
+        if (!["creating", "provisioning"].includes(v.stage)) continue;
+        try {
+          const s = await boat(`/sandboxes/${v.sandboxId}`);
+          if (s?.sandbox?.id) {
+            return { operationId: v.operationId, sandboxId: v.sandboxId, stage: v.stage };
+          }
+        } catch {
+          // sandbox gone; fall through and create fresh
+        }
+      }
       const opId = crypto.randomUUID();
       const idemKey = crypto.randomUUID();
       const rec = {

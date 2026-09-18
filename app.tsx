@@ -166,10 +166,10 @@ function FleetDashboard() {
           </tbody>
         </table>
       )}
-      {data && data.operations.length > 0 && (
+      {data && (data.operations ?? []).length > 0 && (
         <div style={{ marginTop: 16 }}>
           <h3>Operations</h3>
-          {data.operations.map((o) => (
+          (data.operations ?? []).map((o) => (
             <div key={o.operationId} style={{ fontSize: 13, padding: 4 }}>
               {o.name} — {o.stage}
               {o.error ? ` — ${o.error}` : ""}
