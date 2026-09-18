@@ -20,18 +20,14 @@ TTL management, and hosted bb URLs — from one console.
    which has an active standard subscription).
    - The org selector is **per-request**: API keys cannot be org-scoped at creation —
      set the org id in the plugin settings and every call runs against that wallet.
-   - Without the selector, requests default to the account's personal wallet — which may
-     impose trial limits (2-hour auto-stop cap, `trial_auto_stop_required` on
-     `ttlSeconds: null`).
-   - The Wyrdwerk LLP wallet has a full subscription (standard tier), so boxes created
-     under it get the full limits.
+   - Without the selector, requests default to the account's personal wallet.
 
 3. **Base snapshot** — the fork source. Default: `bb-boat-base-pilot-v1` (a clean base
    with bb, persistent codex auth, boot machinery, no repos). Create boxes from it with
    per-project repo manifests.
 
-4. **TTL default** — 4 hours (14400s) per fork. On wallets with trial limits, 2 hours is
-   the maximum until the trial ends; the org wallet's subscription lifts the cap.
+4. **TTL default** — 4 hours (14400s) per fork. Boat enforces wallet-specific auto-stop
+   rules automatically; no special handling needed in the plugin.
 
 ## Flows
 
