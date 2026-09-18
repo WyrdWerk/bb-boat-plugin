@@ -223,7 +223,7 @@ export default function plugin(bb: BbPluginApi) {
       try {
         const r = await boat("/sandboxes", {
           method: "POST",
-          headers: { "Idempotency-Key": idemKey },
+          headers: { "Idempotency-Key": opId },
           body: JSON.stringify(body),
         });
         rec.sandboxId = r.sandbox?.id ?? null;
