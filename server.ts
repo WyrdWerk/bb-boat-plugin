@@ -342,15 +342,18 @@ export default function plugin(bb: BbPluginApi) {
       while (!signal.aborted) {
         try {
           const list = await boat("/sandboxes?limit=200");
-          const boxes = list.sandboxes ?? [];
-          for (const s of boxes) {
-            const raw = await bb.storage.kv.get(`op:${s.name}`);
-          }
           bb.realtime.publish("fleet-changed", { at: new Date().toISOString() });
         } catch (e) {
           log("poll error:", String(e));
         }
-        await new Promise((r) => setTimeout(r, 45_000));
+        // Sleep resolves immediately on abort so stop() is prompt.
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, 45_000);
+          signal.addEventListener("abort", () => {
+            clearTimeout(t);
+            resolve();
+          }, { once: true });
+        });
       }
     },
   });
