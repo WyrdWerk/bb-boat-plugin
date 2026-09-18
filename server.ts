@@ -178,32 +178,40 @@ export default function plugin(bb: BbPluginApi) {
     },
 
     async boxCreate(input) {
-      // Retry safety: if a non-failed operation for this name still references a
-      // live sandbox, reuse it instead of creating a duplicate box.
-      const prior = (await bb.storage.kv.list("op:")) as Array<{ key: string; value: any }>;
-      for (const row of prior) {
-        let v: any;
+      // Deterministic idempotency: the operation id and Boat Idempotency-Key are
+      // derived from the full request identity (name + exact create body), so a
+      // retry or concurrent duplicate of the same logical create reuses the same
+      // record, and Boat replays/dedupes server-side. Different parameters hash
+      // to a different key and can never hijack another request's box.
+      const snap = await settings.get();
+      const body = {
+        from: snap.snapshotName,
+        org: snap.orgId,
+        ttlSeconds: input.ttlSeconds ?? null,
+        setupScript: buildSetupScript(input.repos),
+      };
+      const identity = JSON.stringify({ name: input.name, body });
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity));
+      const opId = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+        .slice(0, 32);
+
+      const priorRec = (await bb.storage.kv.get(`op:${opId}`)) as any;
+      if (priorRec && priorRec.sandboxId && ["creating", "provisioning"].includes(priorRec.stage)) {
         try {
-          v = typeof row?.value === "string" ? JSON.parse(row.value) : row?.value;
-        } catch {
-          continue;
-        }
-        if (!v || v.name !== input.name || !v.sandboxId) continue;
-        if (!["creating", "provisioning"].includes(v.stage)) continue;
-        try {
-          const s = await boat(`/sandboxes/${v.sandboxId}`);
+          const s = await boat(`/sandboxes/${priorRec.sandboxId}`);
           if (s?.sandbox?.id) {
-            return { operationId: v.operationId, sandboxId: v.sandboxId, stage: v.stage };
+            return { operationId: opId, sandboxId: priorRec.sandboxId, stage: priorRec.stage };
           }
         } catch {
-          // sandbox gone; fall through and create fresh
+          // box deleted; fall through and create fresh
         }
       }
-      const opId = crypto.randomUUID();
-      const idemKey = crypto.randomUUID();
+
       const rec = {
         operationId: opId,
-        idemKey,
+        idemKey: opId,
         name: input.name,
         repos: input.repos,
         stage: "creating",
@@ -212,13 +220,6 @@ export default function plugin(bb: BbPluginApi) {
         startedAt: new Date().toISOString(),
       };
       await bb.storage.kv.set(`op:${opId}`, rec);
-      const snap = await settings.get();
-      const body = {
-        from: snap.snapshotName,
-        org: snap.orgId,
-        ttlSeconds: input.ttlSeconds ?? null,
-        setupScript: buildSetupScript(input.repos),
-      };
       try {
         const r = await boat("/sandboxes", {
           method: "POST",
@@ -244,6 +245,8 @@ export default function plugin(bb: BbPluginApi) {
         rec.stage = "failed";
         rec.error = String(e?.message ?? e);
         await bb.storage.kv.set(`op:${opId}`, rec);
+        // A concurrent duplicate of the same logical create surfaces as Boat's
+        // idempotency_in_progress; retrying later replays the original result.
         throw e;
       }
     },
