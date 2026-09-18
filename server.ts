@@ -119,10 +119,12 @@ export default function plugin(bb: BbPluginApi) {
 
   async function boat(path: string, init: RequestInit = {}): Promise<any> {
     const key = await apiKey();
+    const org = (await settings.get()).orgId;
     const r = await fetch(API + path, {
       ...init,
       headers: {
         Authorization: `Bearer ${key}`,
+        "X-Boat-Org": org,
         "Content-Type": "application/json",
         ...(init.headers ?? {}),
       },
